@@ -1,0 +1,59 @@
+---
+- name: "fetching instance details"
+  become: false
+  hosts: localhost
+  vars:
+    region: "ap-south-1"
+  tasks:
+ 
+    - name: "gathering instance details"
+      amazon.aws.ec2_instance_info:
+        region: "{{ region }}"
+        filters:
+          "tag:Name": "KelviAutoScaling"
+          instance-state-name: [ "running" ]
+      register: instance_details
+ 
+    - name: "creating dynamic inventory"
+      add_host:
+        groups: "asg_instances"
+        hostname: "{{ item.public_ip_address }}"
+        ansible_ssh_user: "ec2-user"
+        ansible_ssh_host: '{{ item.public_ip_address }}'
+        ansible_ssh_port: "22"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no"
+      loop: "{{ instance_details.instances }}"
+
+- name: Deploy website
+  hosts: asg_instances
+  become: true  # Run tasks with root privileges
+
+  tasks:
+    - name: Clone GitHub repository
+      git:
+        repo: https://github.com/yourusername/your-repo.git  # Replace with your actual repo URL
+        dest: /path/to/website  # Destination directory on the remote host
+        clone: yes
+        update: yes
+
+    - name: Copy index.html to nginx root
+      copy:
+        src: /path/to/your/index.html  # Path to your index.html file
+        dest: /usr/share/nginx/html/index.html  # Destination path on the remote host
+
+    - name: Install nginx
+      package:
+        name: nginx
+        state: present  # Ensure nginx is installed
+
+    - name: Configure nginx
+      template:
+        src: /path/to/nginx.conf.j2  # Path to your nginx configuration template
+        dest: /etc/nginx/nginx.conf  # Destination path on the remote host
+      notify: Restart nginx  # Trigger the nginx restart handler if configuration changes
+
+  handlers:
+    - name: Restart nginx
+      service:
+        name: nginx
+        state: restarted  # Restart nginx service if configuration changes
